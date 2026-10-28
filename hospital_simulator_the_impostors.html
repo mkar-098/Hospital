@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hospital Simulator: The Impostors</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js for 3D Graphics -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #05070a;
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        /* Mobile Touch Controls Overlay */
+        .touch-control {
+            touch-action: none;
+        }
+        /* Horror Ambient Scanline Effect */
+        .scanlines {
+            background: linear-gradient(
+                rgba(18, 16, 16, 0) 50%, 
+                rgba(0, 0, 0, 0.25) 50%
+            ), linear-gradient(
+                90deg,
+                rgba(255, 0, 0, 0.03),
+                rgba(0, 255, 0, 0.01),
+                rgba(0, 0, 255, 0.03)
+            );
+            background-size: 100% 4px, 6px 100%;
+            pointer-events: none;
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="text-gray-100 flex flex-col h-screen overflow-hidden">
+
+    <!-- 3D Render Canvas Container -->
+    <div id="canvas-container"></div>
+
+    <!-- Scanline Distortion Overlay -->
+    <div class="scanlines absolute inset-0 z-10 pointer-events-none"></div>
+
+    <!-- MAIN UI OVERLAY LAYER -->
+    <div id="ui-layer" class="relative z-20 w-full h-full flex flex-col justify-between p-3 pointer-events-none">
+
+        <!-- Top Header Bar -->
+        <div class="flex justify-between items-start w-full gap-2 pointer-events-auto">
+            <!-- Player Status & Role -->
+            <div class="bg-slate-900/90 border border-slate-700/80 backdrop-blur rounded-lg p-2.5 shadow-lg flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-emerald-950 border border-emerald-500/50 flex items-center justify-center text-emerald-400 font-bold text-lg" id="role-badge">
+                    <i class="fa-solid fa-user-doctor"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-bold text-sm tracking-wide text-gray-200" id="player-role-title">DOCTOR</span>
+                        <span class="text-xs px-2 py-0.5 rounded bg-emerald-900/60 text-emerald-300 border border-emerald-700/50 font-mono" id="shift-title">SHIFT 1: TRAINING</span>
+                    </div>
+                    <!-- Lives display -->
+                    <div class="flex items-center gap-1.5 mt-1" id="lives-container">
+                        <span class="text-xs text-slate-400 mr-1">LIVES:</span>
+                        <i class="fa-solid fa-heart text-red-500 text-sm drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]"></i>
+                        <i class="fa-solid fa-heart text-red-500 text-sm drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]"></i>
+                        <i class="fa-solid fa-heart text-red-500 text-sm drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Objective & Timer Box -->
+            <div class="bg-slate-900/90 border border-slate-700/80 backdrop-blur rounded-lg p-2.5 shadow-lg flex flex-col items-end">
+                <div class="flex items-center gap-2 text-amber-400 font-mono font-bold text-lg" id="timer-display">
+                    <i class="fa-regular fa-clock text-amber-500 animate-pulse"></i>
+                    <span>10:00</span>
+                </div>
+                <div class="text-xs text-slate-300 flex items-center gap-1.5 mt-0.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                    <span id="current-objective" class="font-medium text-emerald-400">Examine Ward Patients</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Notification Toast / Warning -->
+        <div id="toast-message" class="self-center bg-red-950/90 border border-red-600 text-red-200 px-6 py-2.5 rounded-lg shadow-2xl backdrop-blur text-center font-bold tracking-wider opacity-0 transition-all duration-300 transform -translate-y-4 max-w-md pointer-events-none">
+            ANOMALOUS PATIENT DETECTED
+        </div>
+
+        <!-- Interactive Room / Object Prompt -->
+        <div id="interaction-prompt" class="self-center bg-slate-900/95 border border-cyan-500/60 text-cyan-300 px-5 py-3 rounded-xl shadow-2xl backdrop-blur flex items-center gap-3 opacity-0 transition-all duration-200 pointer-events-auto transform translate-y-2 cursor-pointer hover:bg-slate-800">
+            <div class="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center border border-cyan-400/40 text-cyan-300 font-bold font-mono">E</div>
+            <span id="prompt-text" class="text-sm font-semibold tracking-wide">Inspect Patient Record</span>
+        </div>
+
+        <!-- Bottom Controls & Action Bar -->
+        <div class="flex justify-between items-end w-full gap-4">
+            <!-- Mobile Left Virtual Joystick Container -->
+            <div id="joystick-zone" class="w-32 h-32 relative touch-control bg-slate-900/40 border-2 border-slate-700/50 rounded-full flex items-center justify-center pointer-events-auto md:hidden">
+                <div id="joystick-knob" class="w-12 h-12 bg-cyan-500/60 border-2 border-cyan-300 rounded-full shadow-[0_0_15px_rgba(6,182,212,0.5)] transform translate-x-0 translate-y-0 transition-transform duration-75"></div>
+            </div>
+
+            <!-- Quick Action Palette -->
+            <div class="flex items-center gap-2 pointer-events-auto mx-auto md:mx-0">
+                <button id="btn-camera-toggle" class="bg-slate-800/90 hover:bg-slate-700 border border-slate-600 text-slate-200 p-3 rounded-xl shadow flex items-center gap-2 transition text-xs font-semibold">
+                    <i class="fa-solid fa-video text-cyan-400 text-base"></i>
+                    <span class="hidden sm:inline">CCTV Terminal</span>
+                </button>
+                <button id="btn-flashlight" class="bg-slate-800/90 hover:bg-slate-700 border border-slate-600 text-slate-200 p-3 rounded-xl shadow flex items-center gap-2 transition text-xs font-semibold">
+                    <i class="fa-solid fa-flashlight text-amber-400 text-base" id="flashlight-icon"></i>
+                    <span class="hidden sm:inline">Flashlight</span>
+                </button>
+                <button id="btn-inspect" class="bg-cyan-600/90 hover:bg-cyan-500 border border-cyan-400 text-white px-4 py-3 rounded-xl shadow flex items-center gap-2 transition text-xs font-bold tracking-wider">
+                    <i class="fa-solid fa-clipboard-user text-base"></i>
+                    <span>INSPECT</span>
+                </button>
+            </div>
+
+            <!-- Mini Map / Quick Sector Monitor -->
+            <div class="bg-slate-900/90 border border-slate-700/80 rounded-xl p-2.5 shadow-lg hidden md:block w-48 text-xs pointer-events-auto">
+                <div class="text-slate-400 font-bold mb-1 flex justify-between items-center">
+                    <span>SECTOR MAP</span>
+                    <span class="text-[10px] text-emerald-400 font-mono">SECTOR B</span>
+                </div>
+                <div class="grid grid-cols-3 gap-1 bg-slate-950 p-1.5 rounded border border-slate-800 font-mono text-[10px] text-center text-slate-400">
+                    <div id="map-sec-ward" class="p-1 rounded bg-slate-800 text-emerald-400 border border-emerald-500/30">WARD</div>
+                    <div id="map-sec-cctv" class="p-1 rounded bg-slate-900">CCTV</div>
+                    <div id="map-sec-pharm" class="p-1 rounded bg-slate-900">PHARM</div>
+                    <div id="map-sec-er" class="p-1 rounded bg-slate-900">ER</div>
+                    <div id="map-sec-hall" class="p-1 rounded bg-slate-900">HALL</div>
+                    <div id="map-sec-rest" class="p-1 rounded bg-red-950/40 text-red-400">WING</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CCTV SECURITY SCREEN MODAL -->
+    <div id="cctv-modal" class="fixed inset-0 z-40 bg-slate-950/95 flex flex-col p-4 hidden pointer-events-auto">
+        <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+            <div class="flex items-center gap-3">
+                <div class="w-3 h-3 rounded-full bg-red-600 animate-ping"></div>
+                <h2 class="text-lg font-bold tracking-wider text-red-500 font-mono">SURVEILLANCE MONITORING SYSTEM v3.04</h2>
+            </div>
+            <button id="btn-close-cctv" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 px-4 py-1.5 rounded-lg text-sm font-semibold transition">
+                <i class="fa-solid fa-xmark mr-1.5"></i> Exit Monitor
+            </button>
+        </div>
+
+        <div class="flex-1 grid grid-cols-1 md:grid-cols-4 gap-4 mt-4 overflow-hidden">
+            <!-- Camera Feed Display -->
+            <div class="md:col-span-3 bg-black rounded-xl border border-slate-800 relative flex items-center justify-center overflow-hidden">
+                <!-- Static Noise Overlay -->
+                <div id="cctv-static" class="absolute inset-0 bg-repeat opacity-20 pointer-events-none mix-blend-screen hidden" style="background-image: url('data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\'><rect width=\'100\' height=\'100\' fill=\'black\'/><circle cx=\'20\' cy=\'20\' r=\'10\' fill=\'white\' opacity=\'0.2\'/><circle cx=\'70\' cy=\'80\' r=\'15\' fill=\'white\' opacity=\'0.15\'/></svg>');"></div>
+                
+                <canvas id="cctv-canvas" class="w-full h-full object-cover"></canvas>
+                
+                <!-- CCTV HUD Overlay -->
+                <div class="absolute top-4 left-4 text-emerald-400 font-mono text-sm space-y-1 bg-black/60 p-2.5 rounded border border-emerald-900/50">
+                    <div id="cctv-cam-label" class="font-bold">CAM-01: PATIENT WARD A</div>
+                    <div class="text-xs text-slate-400" id="cctv-status">STATUS: ONLINE - SIGNAL STABLE</div>
+                    <div class="text-xs text-amber-400" id="cctv-anomaly-alert">ANOMALY DETECTED: NONE</div>
+                </div>
+
+                <div class="absolute bottom-4 right-4 text-xs font-mono text-slate-400 bg-black/60 p-2 rounded border border-slate-800">
+                    REC <i class="fa-solid fa-circle text-red-500 text-[10px] animate-pulse"></i> | <span id="cctv-time">02:14:59</span>
+                </div>
+            </div>
+
+            <!-- Camera Selector Panel -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col justify-between">
+                <div>
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 border-b border-slate-800 pb-2">Camera Channels</h3>
+                    <div class="space-y-2" id="camera-list">
+                        <button data-cam="0" class="cam-btn active w-full text-left p-2.5 rounded-lg border border-cyan-500/50 bg-cyan-950/40 text-cyan-300 font-mono text-xs flex justify-between items-center transition">
+                            <span>CAM 01: Patient Ward</span>
+                            <i class="fa-solid fa-circle text-emerald-400 text-[8px]"></i>
+                        </button>
+                        <button data-cam="1" class="cam-btn w-full text-left p-2.5 rounded-lg border border-slate-800 bg-slate-950/50 text-slate-300 font-mono text-xs flex justify-between items-center transition hover:bg-slate-800">
+                            <span>CAM 02: Emergency Room</span>
+                            <i class="fa-solid fa-circle text-emerald-400 text-[8px]"></i>
+                        </button>
+                        <button data-cam="2" class="cam-btn w-full text-left p-2.5 rounded-lg border border-slate-800 bg-slate-950/50 text-slate-300 font-mono text-xs flex justify-between items-center transition hover:bg-slate-800">
+                            <span>CAM 03: Pharmacy corridor</span>
+                            <i class="fa-solid fa-circle text-emerald-400 text-[8px]"></i>
+                        </button>
+                        <button data-cam="3" class="cam-btn w-full text-left p-2.5 rounded-lg border border-slate-800 bg-slate-950/50 text-slate-300 font-mono text-xs flex justify-between items-center transition hover:bg-slate-800">
+                            <span>CAM 04: Restricted Basement</span>
+                            <i class="fa-solid fa-circle text-red-500 text-[8px]"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="pt-3 border-t border-slate-800">
+                    <button id="btn-recalibrate-cam" class="w-full bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/40 p-2.5 rounded-lg font-mono text-xs font-bold flex items-center justify-center gap-2 transition">
+                        <i class="fa-solid fa-arrows-rotate"></i>
+                        <span>Recalibrate Signal</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PATIENT INSPECTION DOSSIER MODAL -->
+    <div id="patient-modal" class="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 hidden pointer-events-auto">
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-xl w-full p-6 shadow-2xl relative overflow-hidden flex flex-col gap-5">
+            <!-- Header -->
+            <div class="flex justify-between items-start border-b border-slate-800 pb-3">
+                <div>
+                    <span class="text-xs font-mono text-cyan-400 font-semibold tracking-wider uppercase">Medical Dossier & Diagnosis</span>
+                    <h2 class="text-xl font-bold text-slate-100" id="patient-modal-name">Patient #8042 - Arthur Pendelton</h2>
+                </div>
+                <button id="btn-close-patient" class="text-slate-400 hover:text-white text-lg">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Dossier Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm font-mono">
+                <!-- Medical Record Card -->
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                    <div class="text-xs text-slate-500 border-b border-slate-800 pb-1 font-bold">OFFICIAL RECORDS</div>
+                    <div><span class="text-slate-400">Patient ID:</span> <span id="doc-id" class="text-slate-200">ID-9921-X</span></div>
+                    <div><span class="text-slate-400">Assigned Ward:</span> <span id="doc-room" class="text-slate-200">Ward Bed #2</span></div>
+                    <div><span class="text-slate-400">Diagnosis:</span> <span id="doc-diagnosis" class="text-slate-200">Acute Migraine</span></div>
+                    <div><span class="text-slate-400">Normal Temp:</span> <span id="doc-norm-temp" class="text-slate-200">36.6 °C</span></div>
+                </div>
+
+                <!-- Live Physical Exam -->
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                    <div class="text-xs text-slate-500 border-b border-slate-800 pb-1 font-bold">LIVE EXAMINATION</div>
+                    <div><span class="text-slate-400">Current Temp:</span> <span id="exam-temp" class="text-emerald-400 font-bold">36.7 °C</span></div>
+                    <div><span class="text-slate-400">Facial Symmetry:</span> <span id="exam-face" class="text-slate-200">Normal</span></div>
+                    <div><span class="text-slate-400">Vocal Pattern:</span> <span id="exam-vocal" class="text-slate-200">Coherent</span></div>
+                    <div><span class="text-slate-400">Motor Function:</span> <span id="exam-motor" class="text-slate-200">Stable</span></div>
+                </div>
+            </div>
+
+            <!-- Patient Observation Dialogue -->
+            <div class="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800 text-xs italic text-slate-300 relative">
+                <i class="fa-solid fa-quote-left text-slate-700 text-lg absolute top-2 left-2"></i>
+                <p class="pl-6 text-slate-200 font-sans" id="patient-quote">"Doctor, the lights keep flickering... or am I just seeing things again?"</p>
+            </div>
+
+            <!-- Decision Action Buttons -->
+            <div class="grid grid-cols-2 gap-3 pt-2">
+                <button id="btn-action-approve" class="bg-emerald-600/80 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl border border-emerald-400 transition flex items-center justify-center gap-2 text-sm shadow-lg">
+                    <i class="fa-solid fa-circle-check"></i>
+                    <span>APPROVE & TREAT</span>
+                </button>
+                <button id="btn-action-contain" class="bg-red-700/90 hover:bg-red-600 text-white font-bold py-3 rounded-xl border border-red-500 transition flex items-center justify-center gap-2 text-sm shadow-lg">
+                    <i class="fa-solid fa-biohazard text-lg"></i>
+                    <span>CONTAIN IMPOSTOR</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- START MENU / SHIFT SELECTION SCREEN -->
+    <div id="start-screen" class="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center p-6 text-center pointer-events-auto">
+        <div class="max-w-xl w-full space-y-6">
+            <div class="space-y-2">
+                <div class="inline-block bg-red-950/80 text-red-400 border border-red-700/60 px-3 py-1 rounded-full text-xs font-mono font-bold tracking-widest uppercase">
+                    Psychological Survival Horror
+                </div>
+                <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight text-slate-100 font-mono">
+                    HOSPITAL SIMULATOR
+                </h1>
+                <p class="text-red-500 font-mono font-semibold tracking-widest text-lg">THE IMPOSTORS</p>
+            </div>
+
+            <p class="text-slate-400 text-sm leading-relaxed max-w-md mx-auto">
+                Examine patients, analyze medical dossiers, repair security systems, and identify anomalous biological entities disguised as humans before shift ends.
+            </p>
+
+            <!-- Role Selector -->
+            <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl text-left space-y-3">
+                <label class="text-xs font-mono text-slate-400 uppercase font-bold">Select Duty Role</label>
+                <div class="grid grid-cols-3 gap-2">
+                    <button data-role="doctor" class="role-select-btn active p-3 rounded-lg border border-emerald-500/80 bg-emerald-950/40 text-emerald-300 font-bold text-xs flex flex-col items-center gap-1 transition">
+                        <i class="fa-solid fa-user-doctor text-lg"></i>
+                        <span>DOCTOR</span>
+                    </button>
+                    <button data-role="nurse" class="role-select-btn p-3 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 font-bold text-xs flex flex-col items-center gap-1 transition hover:bg-slate-800">
+                        <i class="fa-solid fa-user-nurse text-lg"></i>
+                        <span>NURSE</span>
+                    </button>
+                    <button data-role="watcher" class="role-select-btn p-3 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 font-bold text-xs flex flex-col items-center gap-1 transition hover:bg-slate-800">
+                        <i class="fa-solid fa-eye text-lg"></i>
+                        <span>CCTV WATCHER</span>
+                    </button>
+                </div>
+            </div>
+
+            <button id="btn-start-game" class="w-full bg-red-700 hover:bg-red-600 text-white font-mono font-bold py-4 rounded-xl shadow-xl transition transform active:scale-95 border border-red-500 text-lg tracking-wider">
+                BEGIN SHIFT 1
+            </button>
+        </div>
+    </div>
+
+    <!-- SHIFT COMPLETE / GAME OVER MODAL -->
+    <div id="game-over-screen" class="fixed inset-0 z-50 bg-slate-950/95 flex flex-col items-center justify-center p-6 hidden pointer-events-auto">
+        <div class="max-w-md w-full bg-slate-900 border border-slate-800 p-6 rounded-2xl text-center space-y-5 shadow-2xl">
+            <div class="w-16 h-16 rounded-full bg-red-950 border border-red-600 flex items-center justify-center text-red-500 text-2xl mx-auto" id="go-icon">
+                <i class="fa-solid fa-skull"></i>
+            </div>
+            
+            <div>
+                <h2 class="text-2xl font-bold font-mono text-slate-100" id="go-title">SHIFT FAILED</h2>
+                <p class="text-xs text-slate-400 font-mono mt-1" id="go-subtitle">ALL STAFF LIVES EXHAUSTED</p>
+            </div>
+
+            <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2 text-left font-mono text-xs">
+                <div class="flex justify-between"><span class="text-slate-400">Shift Reached:</span> <span id="go-shift-num" class="text-slate-200">Shift 1</span></div>
+                <div class="flex justify-between"><span class="text-slate-400">Impostors Contained:</span> <span id="go-impostors-count" class="text-emerald-400">0</span></div>
+                <div class="flex justify-between"><span class="text-slate-400">Errors Made:</span> <span id="go-errors-count" class="text-red-400">0</span></div>
+            </div>
+
+            <button id="btn-restart-shift" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-100 font-mono font-bold py-3.5 rounded-xl border border-slate-600 transition">
+                RETRY SHIFT
+            </button>
+        </div>
+    </div>
+
+    <!-- MAIN GAME SIMULATION & CONTROLLER SCRIPT -->
+    <script>
+        // --- GAME STATE & CONSTANTS ---
+        const GAME_STATE = {
+            shift: 1,
+            role: 'doctor',
+            lives: 3,
+            shiftTimeLeft: 600, // 10 minutes in seconds
+            audioMode: 'calm', // 'calm', 'uncanny', 'panic'
+            flashlightOn: true,
+            currentObjective: 'Examine Ward Patients',
+            patientsContained: 0,
+            errorsMade: 0,
+            activePatientIndex: null,
+            cctvActiveCam: 0,
+            isCCTVOpen: false,
+            isPatientModalOpen: false,
+            gameOver: false
+        };
+
+        const SHIFTS_CONFIG = [
+            { title: "SHIFT 1: TRAINING", time: 300, impostorChance: 0.25, maxPatients: 3 },
+            { title: "SHIFT 2: UNUSUAL BEHAVIOR", time: 360, impostorChance: 0.45, maxPatients: 4 },
+            { title: "SHIFT 3: SYSTEM FAILURE", time: 420, impostorChance: 0.60, maxPatients: 5 },
+            { title: "SHIFT 4: ADVANCED IMPOSTORS", time: 480, impostorChance: 0.75, maxPatients: 5 },
+            { title: "SHIFT 5: OUTBREAK", time: 540, impostorChance: 0.90, maxPatients: 6 }
+        ];
+
+        // Entity Types
+        const ENTITY_TYPES = {
+            MIMIC: 'Mimic',
+            FACELESS: 'Faceless Patient',
+            REPEATER: 'Repeater',
+            WRONG_DOC: 'Wrong Patient Record',
+            GLITCHED: 'Glitched Entity',
+            PERFECT: 'Perfect Impostor'
+        };
+
+        // Simulated Patient Names & Data Generator
+        const PATIENT_NAMES = ["Arthur Pendelton", "Elena Rostova", "Marcus Vance", "Sarah Jenkins", "David Kim", "Clara Oswald", "Viktor Drago"];
+        const DIAGNOSES = ["Acute Migraine", "Mild Concussion", "Post-op Recovery", "Insomnia", "Asthma Observation"];
+
+        let patientsList = [];
+
+        // --- WEB AUDIO AUDIO SYNTHESIZER ---
+        class SoundEngine {
+            constructor() {
+                this.ctx = null;
+                this.masterGain = null;
+                this.bgOsc = null;
+                this.heartbeatInterval = null;
+                this.initialized = false;
+            }
+
+            init() {
+                if (this.initialized) return;
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                this.ctx = new AudioCtx();
+                this.masterGain = this.ctx.createGain();
+                this.masterGain.gain.value = 0.3;
+                this.masterGain.connect(this.ctx.destination);
+                this.initialized = true;
+                this.startAmbientMusic();
+            }
+
+            startAmbientMusic() {
+                if (!this.ctx) return;
+                // Dark Ambient Drone
+                this.bgOsc = this.ctx.createOscillator();
+                const droneGain = this.ctx.createGain();
+                
+                this.bgOsc.type = 'sawtooth';
+                this.bgOsc.frequency.setValueAtTime(55, this.ctx.currentTime); // Low A note
+
+                // Lowpass filter for muffled dark atmosphere
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(180, this.ctx.currentTime);
+
+                droneGain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+
+                this.bgOsc.connect(filter);
+                filter.connect(droneGain);
+                droneGain.connect(this.masterGain);
+
+                this.bgOsc.start();
+            }
+
+            setAudioState(state) {
+                if (!this.ctx) return;
+                GAME_STATE.audioMode = state;
+                if (state === 'panic') {
+                    this.triggerHeartbeat(true);
+                } else {
+                    this.triggerHeartbeat(false);
+                }
+            }
+
+            triggerHeartbeat(enable) {
+                if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+                if (!enable) return;
+
+                this.heartbeatInterval = setInterval(() => {
+                    this.playThump();
+                }, 700);
+            }
+
+            playThump() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.frequency.setValueAtTime(80, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.15);
+
+                gain.gain.setValueAtTime(0.6, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.2);
+
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.2);
+            }
+
+            playDamageStinger() {
+                if (!this.ctx) return;
+                // Chilling metallic distortion sound
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(300, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 0.8);
+
+                gain.gain.setValueAtTime(0.8, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.8);
+
+                osc.connect(gain);
+                gain.connect(this.masterGain);
+
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.8);
+            }
+        }
+
+        const soundEngine = new SoundEngine();
+
+        // --- THREE.JS 3D WORLD SETUP ---
+        let scene, camera, renderer;
+        let playerObj, flashlightLight;
+        let interactiveObjects = [];
+        let camera3DPos = new THREE.Vector3(0, 1.6, 0);
+
+        // Player Movement Logic
+        const playerState = {
+            x: 0,
+            z: 8,
+            rotationY: 0,
+            speed: 0.12
+        };
+
+        const keys = { w: false, a: false, s: false, d: false };
+
+        function init3DWorld() {
+            const container = document.getElementById('canvas-container');
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x05070a);
+            scene.fog = new THREE.FogExp2(0x05070a, 0.08);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Lighting Setup
+            const ambientLight = new THREE.AmbientLight(0x1a2436, 0.6);
+            scene.add(ambientLight);
+
+            // Player Light / Flashlight
+            flashlightLight = new THREE.SpotLight(0xfffaed, 2, 20, Math.PI / 6, 0.4);
+            flashlightLight.castShadow = true;
+            scene.add(flashlightLight);
+
+            // Build Hospital Architectural Layout
+            buildHospitalMap();
+
+            // Spawn Player Visual Token (Replacing CapsuleGeometry with standard Cylinder/Sphere combination to ensure compatibility across Three.js versions)
+            const playerGroup = new THREE.Group();
+            const playerBodyGeo = new THREE.CylinderGeometry(0.35, 0.35, 1.0, 16);
+            const playerHeadGeo = new THREE.SphereGeometry(0.35, 16, 16);
+            const playerMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, roughness: 0.3 });
+            
+            const playerBody = new THREE.Mesh(playerBodyGeo, playerMat);
+            playerBody.position.y = 0.5;
+            const playerHead = new THREE.Mesh(playerHeadGeo, playerMat);
+            playerHead.position.y = 1.0;
+            
+            playerGroup.add(playerBody);
+            playerGroup.add(playerHead);
+            
+            playerObj = playerGroup;
+            playerObj.position.set(playerState.x, 0.4, playerState.z);
+            scene.add(playerObj);
+
+            // Spawn Initial Shift Patients
+            generateShiftPatients();
+
+            // Resize Event Handler
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function buildHospitalMap() {
+            // Floor
+            const floorGeo = new THREE.PlaneGeometry(30, 40);
+            const floorMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // Ceiling
+            const ceiling = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ color: 0x0f172a }));
+            ceiling.position.y = 3.5;
+            ceiling.rotation.x = Math.PI / 2;
+            scene.add(ceiling);
+
+            // Walls Construction Helper
+            function createWall(x, z, w, h, d, color = 0x334155) {
+                const geo = new THREE.BoxGeometry(w, h, d);
+                const mat = new THREE.MeshStandardMaterial({ color: color });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(x, h / 2, z);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                scene.add(mesh);
+            }
+
+            // Exterior Boundary Walls
+            createWall(0, -20, 30, 3.5, 0.5); // Back
+            createWall(0, 20, 30, 3.5, 0.5);  // Front
+            createWall(-15, 0, 0.5, 3.5, 40); // Left
+            createWall(15, 0, 0.5, 3.5, 40);  // Right
+
+            // Internal Sector Dividers (Ward, CCTV, Pharmacy)
+            createWall(-5, -5, 0.4, 3.5, 20); // Corridor Left Wall
+            createWall(5, -5, 0.4, 3.5, 20);  // Corridor Right Wall
+
+            // Dim Sector Lights
+            const wardLight = new THREE.PointLight(0x38bdf8, 1, 10);
+            wardLight.position.set(-9, 2.8, -10);
+            scene.add(wardLight);
+
+            const cctvLight = new THREE.PointLight(0xef4444, 0.8, 8);
+            cctvLight.position.set(9, 2.8, -10);
+            scene.add(cctvLight);
+        }
+
+        // --- PATIENT & ENTITY SPAWNING LOGIC ---
+        function generateShiftPatients() {
+            // Clean up existing patient meshes
+            interactiveObjects.forEach(obj => scene.remove(obj.mesh));
+            interactiveObjects = [];
+            patientsList = [];
+
+            const shiftConfig = SHIFTS_CONFIG[GAME_STATE.shift - 1];
+            
+            for (let i = 0; i < shiftConfig.maxPatients; i++) {
+                const isImpostor = Math.random() < shiftConfig.impostorChance;
+                let entityType = null;
+
+                if (isImpostor) {
+                    const types = Object.values(ENTITY_TYPES);
+                    entityType = types[Math.floor(Math.random() * types.length)];
+                }
+
+                const patientData = {
+                    id: `ID-${1000 + Math.floor(Math.random() * 8999)}-X`,
+                    name: PATIENT_NAMES[i % PATIENT_NAMES.length],
+                    room: `Bed #${i + 1}`,
+                    diagnosis: DIAGNOSES[i % DIAGNOSES.length],
+                    normTemp: "36.6 °C",
+                    currentTemp: isImpostor && entityType === ENTITY_TYPES.GLITCHED ? "39.8 °C" : "36.7 °C",
+                    isImpostor: isImpostor,
+                    entityType: entityType,
+                    quote: isImpostor ? "I feel... different today, doctor. Does my skin look normal to you?" : "Thank you for checking on me, Doctor."
+                };
+
+                patientsList.push(patientData);
+
+                // Create 3D Bed & Patient Representation
+                const patientGroup = new THREE.Group();
+
+                // Bed Mesh
+                const bedGeo = new THREE.BoxGeometry(1.2, 0.5, 2);
+                const bedMat = new THREE.MeshStandardMaterial({ color: 0x475569 });
+                const bed = new THREE.Mesh(bedGeo, bedMat);
+                patientGroup.add(bed);
+
+                // Patient Model (Replaced CapsuleGeometry with compatible CylinderGeometry)
+                const pGeo = new THREE.CylinderGeometry(0.3, 0.3, 1.2, 12);
+                const pMat = new THREE.MeshStandardMaterial({ 
+                    color: isImpostor && entityType === ENTITY_TYPES.FACELESS ? 0x94a3b8 : 0xfbcfe8 
+                });
+                const patientMesh = new THREE.Mesh(pGeo, pMat);
+                patientMesh.rotation.z = Math.PI / 2;
+                patientMesh.position.set(0, 0.4, 0);
+                patientGroup.add(patientMesh);
+
+                // Position beds in Patient Ward Sector
+                const posX = -10 + (i % 2) * 3;
+                const posZ = -12 + Math.floor(i / 2) * 4;
+                patientGroup.position.set(posX, 0.25, posZ);
+
+                scene.add(patientGroup);
+
+                interactiveObjects.push({
+                    mesh: patientGroup,
+                    type: 'patient',
+                    index: i,
+                    pos: new THREE.Vector3(posX, 0, posZ)
+                });
+            }
+        }
+
+        // --- PLAYER CONTROLS & INTERACTION ---
+        function setupControls() {
+            // Keyboard Listener
+            window.addEventListener('keydown', (e) => {
+                if (GAME_STATE.gameOver) return;
+                const key = e.key.toLowerCase();
+                if (key in keys) keys[key] = true;
+                if (key === 'e') checkInteractions();
+            });
+
+            window.addEventListener('keyup', (e) => {
+                const key = e.key.toLowerCase();
+                if (key in keys) keys[key] = false;
+            });
+
+            // Virtual Touch Joystick for Mobile
+            const joystickZone = document.getElementById('joystick-zone');
+            const joystickKnob = document.getElementById('joystick-knob');
+            let joystickActive = false;
+
+            joystickZone.addEventListener('touchstart', (e) => {
+                joystickActive = true;
+            });
+
+            joystickZone.addEventListener('touchmove', (e) => {
+                if (!joystickActive) return;
+                const touch = e.touches[0];
+                const rect = joystickZone.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+
+                let deltaX = touch.clientX - centerX;
+                let deltaY = touch.clientY - centerY;
+                const distance = Math.min(Math.hypot(deltaX, deltaY), 40);
+
+                const angle = Math.atan2(deltaY, deltaX);
+                const knobX = Math.cos(angle) * distance;
+                const knobY = Math.sin(angle) * distance;
+
+                joystickKnob.style.transform = `translate(${knobX}px, ${knobY}px)`;
+
+                // Map to player directional velocity
+                playerState.x += (knobX / 40) * playerState.speed;
+                playerState.z += (knobY / 40) * playerState.speed;
+            });
+
+            joystickZone.addEventListener('touchend', () => {
+                joystickActive = false;
+                joystickKnob.style.transform = `translate(0px, 0px)`;
+            });
+
+            // UI Buttons Action Binding
+            document.getElementById('btn-flashlight').addEventListener('click', () => {
+                GAME_STATE.flashlightOn = !GAME_STATE.flashlightOn;
+                flashlightLight.intensity = GAME_STATE.flashlightOn ? 2 : 0;
+                document.getElementById('flashlight-icon').className = GAME_STATE.flashlightOn ? 
+                    "fa-solid fa-flashlight text-amber-400 text-base" : "fa-solid fa-flashlight text-slate-500 text-base";
+            });
+
+            document.getElementById('btn-inspect').addEventListener('click', () => {
+                checkInteractions(true);
+            });
+
+            document.getElementById('btn-camera-toggle').addEventListener('click', toggleCCTV);
+            document.getElementById('btn-close-cctv').addEventListener('click', toggleCCTV);
+            document.getElementById('btn-close-patient').addEventListener('click', closePatientModal);
+
+            document.getElementById('btn-action-approve').addEventListener('click', () => handlePatientDecision(false));
+            document.getElementById('btn-action-contain').addEventListener('click', () => handlePatientDecision(true));
+
+            // Start Shift Handler
+            document.getElementById('btn-start-game').addEventListener('click', () => {
+                soundEngine.init();
+                document.getElementById('start-screen').classList.add('hidden');
+                startShiftTimer();
+            });
+
+            document.getElementById('btn-restart-shift').addEventListener('click', restartShift);
+        }
+
+        // --- INTERACTION PROMPT & DISTANCE CHECKER ---
+        function checkInteractions(forceInspect = false) {
+            let closestObj = null;
+            let minDistance = 2.5;
+
+            interactiveObjects.forEach(obj => {
+                const dist = playerObj.position.distanceTo(obj.pos);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    closestObj = obj;
+                }
+            });
+
+            const promptEl = document.getElementById('interaction-prompt');
+
+            if (closestObj) {
+                promptEl.style.opacity = '1';
+                document.getElementById('prompt-text').textContent = `Inspect ${patientsList[closestObj.index].name}`;
+                
+                if (forceInspect) {
+                    openPatientModal(closestObj.index);
+                }
+            } else {
+                promptEl.style.opacity = '0';
+            }
+        }
+
+        // --- PATIENT DOSSIER MODAL LOGIC ---
+        function openPatientModal(index) {
+            GAME_STATE.activePatientIndex = index;
+            const patient = patientsList[index];
+
+            document.getElementById('patient-modal-name').textContent = patient.name;
+            document.getElementById('doc-id').textContent = patient.id;
+            document.getElementById('doc-room').textContent = patient.room;
+            document.getElementById('doc-diagnosis').textContent = patient.diagnosis;
+            document.getElementById('exam-temp').textContent = patient.currentTemp;
+            document.getElementById('patient-quote').textContent = `"${patient.quote}"`;
+
+            document.getElementById('patient-modal').classList.remove('hidden');
+            GAME_STATE.isPatientModalOpen = true;
+        }
+
+        function closePatientModal() {
+            document.getElementById('patient-modal').classList.add('hidden');
+            GAME_STATE.isPatientModalOpen = false;
+        }
+
+        function handlePatientDecision(contained) {
+            const index = GAME_STATE.activePatientIndex;
+            const patient = patientsList[index];
+
+            closePatientModal();
+
+            if (contained) {
+                if (patient.isImpostor) {
+                    // Correct Containment
+                    showToast("IMPOSTOR SUCCESSFULLY CONTAINED", "emerald");
+                    GAME_STATE.patientsContained++;
+                } else {
+                    // False Containment of Genuine Patient
+                    showToast("ERROR: GENUINE PATIENT CONTAINED", "red");
+                    GAME_STATE.errorsMade++;
+                    deductLife();
+                }
+            } else {
+                if (patient.isImpostor) {
+                    // Approved an Impostor! Attack Occurs
+                    showToast("ATTACK! RELEASED AN IMPOSTOR", "red");
+                    GAME_STATE.errorsMade++;
+                    deductLife();
+                } else {
+                    // Correct Approval
+                    showToast("PATIENT APPROVED & TREATED", "emerald");
+                }
+            }
+
+            // Remove Patient from Ward
+            scene.remove(interactiveObjects[index].mesh);
+        }
+
+        // --- CCTV MONITOR SYSTEM ---
+        function toggleCCTV() {
+            GAME_STATE.isCCTVOpen = !GAME_STATE.isCCTVOpen;
+            const modal = document.getElementById('cctv-modal');
+            
+            if (GAME_STATE.isCCTVOpen) {
+                modal.classList.remove('hidden');
+                soundEngine.setAudioState('uncanny');
+            } else {
+                modal.classList.add('hidden');
+                soundEngine.setAudioState('calm');
+            }
+        }
+
+        // --- LIVES & DAMAGE SYSTEM ---
+        function deductLife() {
+            GAME_STATE.lives--;
+            soundEngine.playDamageStinger();
+
+            const livesContainer = document.getElementById('lives-container');
+            const hearts = livesContainer.querySelectorAll('i');
+            if (hearts[GAME_STATE.lives]) {
+                hearts[GAME_STATE.lives].className = "fa-solid fa-heart text-slate-700 text-sm";
+            }
+
+            if (GAME_STATE.lives <= 0) {
+                triggerGameOver();
+            }
+        }
+
+        function triggerGameOver() {
+            GAME_STATE.gameOver = true;
+            soundEngine.setAudioState('panic');
+            document.getElementById('game-over-screen').classList.remove('hidden');
+        }
+
+        function restartShift() {
+            GAME_STATE.lives = 3;
+            GAME_STATE.gameOver = false;
+            GAME_STATE.shiftTimeLeft = SHIFTS_CONFIG[GAME_STATE.shift - 1].time;
+            
+            // Reset Heart Icons
+            const hearts = document.getElementById('lives-container').querySelectorAll('i');
+            hearts.forEach(h => h.className = "fa-solid fa-heart text-red-500 text-sm drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]");
+
+            document.getElementById('game-over-screen').classList.add('hidden');
+            generateShiftPatients();
+        }
+
+        // --- TOAST NOTIFICATIONS ---
+        function showToast(text, color = "red") {
+            const toast = document.getElementById('toast-message');
+            toast.textContent = text;
+            toast.className = `self-center bg-${color}-950/90 border border-${color}-600 text-${color}-200 px-6 py-2.5 rounded-lg shadow-2xl backdrop-blur text-center font-bold tracking-wider opacity-100 transition-all duration-300 transform translate-y-0 max-w-md pointer-events-none`;
+            
+            setTimeout(() => {
+                toast.classList.add('opacity-0', '-translate-y-4');
+            }, 3000);
+        }
+
+        // --- SHIFT TIMER & LOOP ---
+        function startShiftTimer() {
+            setInterval(() => {
+                if (GAME_STATE.gameOver) return;
+                if (GAME_STATE.shiftTimeLeft > 0) {
+                    GAME_STATE.shiftTimeLeft--;
+                    const mins = Math.floor(GAME_STATE.shiftTimeLeft / 60);
+                    const secs = GAME_STATE.shiftTimeLeft % 60;
+                    document.getElementById('timer-display').querySelector('span').textContent = 
+                        `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                }
+            }, 1000);
+        }
+
+        // --- MAIN RENDER & ANIMATION LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (!GAME_STATE.gameOver) {
+                // Keyboard Movement Execution
+                if (keys.w) playerState.z -= playerState.speed;
+                if (keys.s) playerState.z += playerState.speed;
+                if (keys.a) playerState.x -= playerState.speed;
+                if (keys.d) playerState.x += playerState.speed;
+
+                // Clamp Boundaries
+                playerState.x = Math.max(-14, Math.min(14, playerState.x));
+                playerState.z = Math.max(-18, Math.min(18, playerState.z));
+
+                if (playerObj) {
+                    playerObj.position.x = playerState.x;
+                    playerObj.position.z = playerState.z;
+
+                    // Update Flashlight to player coordinates
+                    flashlightLight.position.set(playerState.x, 1.6, playerState.z);
+                    flashlightLight.target.position.set(playerState.x, 1.0, playerState.z - 5);
+                    scene.add(flashlightLight.target);
+
+                    // Smooth Camera Follow
+                    camera.position.x = THREE.MathUtils.lerp(camera.position.x, playerState.x, 0.08);
+                    camera.position.y = 4.5;
+                    camera.position.z = THREE.MathUtils.lerp(camera.position.z, playerState.z + 5, 0.08);
+                    camera.lookAt(playerState.x, 1.0, playerState.z);
+                }
+
+                // Check Proximity for Interactions
+                checkInteractions();
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- INITIALIZATION ENTRYPOINT ---
+        window.onload = () => {
+            init3DWorld();
+            setupControls();
+            animate();
+        };
+    </script>
+</body>
+</html>
