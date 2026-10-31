@@ -30,3 +30,6 @@ Then visit `http://localhost:8080`.
 - **4-Decision Medical Dossier:** `INVESTIGATE` (4-step diagnostic scan), `APPROVE`, `CONTAIN` (requires logged discrepancy evidence), and `RELEASE` (reversible quarantine).
 - **4-Channel Live 3D CCTV System:** Real secondary Three.js security cameras (`CAM 01`–`CAM 04`), 6 anomaly types, `Log Camera Evidence`, and `Recalibrate Signal`.
 - **5 Campaign Shifts + Endless Wave Mode:** Full mission briefings, real-time objective checklist, 3D screen-space directional waypoints, 4-level danger escalation and chase survival, in-engine 3D cinematic success endings, earnable viewmodel/3D doctor cosmetics, and `localStorage` persistence.
+
+
+link to page: https://hospital-1053615295105.us-west1.run.app
